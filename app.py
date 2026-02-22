@@ -28,7 +28,7 @@ with app.app_context():
     db.create_all()
     # إنشاء حساب المسؤول الافتراضي إذا لم يكن موجوداً
     if not Admin.query.first():
-        default_admin = Admin(username='admin', password=generate_password_hash('password'))
+        default_admin = Admin(username='safar', password=generate_password_hash('770344025--'))
         db.session.add(default_admin)
         db.session.commit()
 
