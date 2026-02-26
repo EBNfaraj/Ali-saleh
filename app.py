@@ -190,7 +190,7 @@ def transcribe_video_stream(video_id):
             full_text = ""
             for i, chunk in enumerate(chunks):
                 # حفظ الجزء مؤقتاً
-                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_wav:
+                with tempfile.NamedTemporaryFile(suffix=".wav", dir=app.config['UPLOAD_FOLDER'], delete=False) as temp_wav:
                     chunk.export(temp_wav.name, format="wav")
                     temp_wav_path = temp_wav.name
                 
@@ -263,7 +263,7 @@ def transcribe_temp_stream():
             
             full_text = ""
             for i, chunk in enumerate(chunks):
-                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_wav:
+                with tempfile.NamedTemporaryFile(suffix=".wav", dir=app.config['UPLOAD_FOLDER'], delete=False) as temp_wav:
                     chunk.export(temp_wav.name, format="wav")
                     temp_wav_path = temp_wav.name
                 
