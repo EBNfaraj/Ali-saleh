@@ -126,19 +126,8 @@ def upload_video():
             content = request.form.get('content', '')
             tags = request.form.get('tags', '')
             
-            # محاولة استخراج النص إذا كان المحتوى فارغاً
-            if not content.strip():
-                try:
-                    import whisper
-                    import warnings
-                    warnings.filterwarnings("ignore", message=".*FP16.*")
-                    # استخدام الموديل small للسرعة المعقولة والجودة الجيدة
-                    model = whisper.load_model("small")
-                    result = model.transcribe(file_path)
-                    content = result["text"].strip()
-                except Exception as e:
-                    print(f"Error during transcription: {e}")
-            
+            # تمت إزالة التفريغ التلقائي من هنا بطلب من المستخدم
+
             new_video = Video(title=title, filename=unique_filename, description=description, content=content, tags=tags)
             db.session.add(new_video)
             
@@ -154,7 +143,7 @@ def upload_video():
             
             db.session.commit()
             
-            flash('تم رفع الفيديو بنجاح!')
+            flash('تم رفع الفيديو بنجاح! يمكنك الآن تفريغ نصه من صفحة التعديل أو العرض.')
             return redirect(url_for('index'))
         else:
             flash('صيغة الملف غير مدعومة.')
@@ -162,6 +151,85 @@ def upload_video():
 
     playlists = Playlist.query.order_by(Playlist.created_at.desc()).all()
     return render_template('upload.html', playlists=playlists)
+
+# دالة Server-Sent Events لتفريغ الفيديو مباشرة
+from flask import Response
+import json
+import time
+
+@app.route('/transcribe/<int:video_id>')
+@admin_required
+def transcribe_video_stream(video_id):
+    video = Video.query.get_or_404(video_id)
+    file_path = os.path.join(app.config['UPLOAD_FOLDER'], video.filename)
+    
+    def generate():
+        try:
+            yield f"data: {json.dumps({'status': 'info', 'message': 'جاري تجهيز الفيديو واستخلاص الصوت...'})}\n\n"
+            
+            from pydub import AudioSegment
+            import tempfile
+            import whisper
+            import warnings
+            warnings.filterwarnings("ignore", message=".*FP16.*")
+            
+            # تحميل الفيديو واستخراج الصوت
+            audio = AudioSegment.from_file(file_path)
+            
+            yield f"data: {json.dumps({'status': 'info', 'message': 'جاري تحميل نموذج الذكاء الاصطناعي (قد يستغرق بعض الوقت في المرة الأولى)...'})}\n\n"
+            
+            # استخدام موديل small (توازن بين السرعة والدقة)
+            model = whisper.load_model("small")
+            
+            yield f"data: {json.dumps({'status': 'info', 'message': 'اكتمل التحميل. جاري بدء التفريغ المباشر...'})}\n\n"
+            
+            # تقسيم الصوت إلى أجزاء صغيرة (مثلاً كل 10 ثواني) ليرى المستخدم النص فوراً
+            chunk_length_ms = 10000 
+            chunks = [audio[i:i+chunk_length_ms] for i in range(0, len(audio), chunk_length_ms)]
+            
+            full_text = ""
+            for i, chunk in enumerate(chunks):
+                # حفظ الجزء مؤقتاً
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_wav:
+                    chunk.export(temp_wav.name, format="wav")
+                    temp_wav_path = temp_wav.name
+                
+                # تفريغ الجزء الصغير
+                result = model.transcribe(temp_wav_path)
+                text_segment = result["text"].strip()
+                
+                # حذف الملف المؤقت
+                try:
+                    os.remove(temp_wav_path)
+                except:
+                    pass
+                
+                if text_segment:
+                    full_text += text_segment + " "
+                    # إرسال النص المستخرج فوراً للمتصفح (بث حي)
+                    yield f"data: {json.dumps({'status': 'text', 'text': text_segment + ' '})}\n\n"
+                
+                # إراحة السيرفر قليلاً
+                time.sleep(0.1)
+
+            # إنهاء البث
+            yield f"data: {json.dumps({'status': 'done', 'full_text': full_text.strip()})}\n\n"
+            
+        except Exception as e:
+            yield f"data: {json.dumps({'status': 'error', 'message': str(e)})}\n\n"
+            
+    return Response(generate(), mimetype='text/event-stream')
+
+@app.route('/save_transcription/<int:video_id>', methods=['POST'])
+@admin_required
+def save_transcription(video_id):
+    video = Video.query.get_or_404(video_id)
+    data = request.get_json()
+    if data and 'content' in data:
+        video.content = data['content']
+        db.session.commit()
+        return {'success': True}
+    return {'success': False}, 400
 
 @app.route('/edit/<int:video_id>', methods=['GET', 'POST'])
 @admin_required
