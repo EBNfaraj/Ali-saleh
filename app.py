@@ -176,44 +176,22 @@ def transcribe_video_stream(video_id):
             # تحميل الفيديو واستخراج الصوت
             audio = AudioSegment.from_file(file_path)
             
-            yield f"data: {json.dumps({'status': 'info', 'message': 'جاري تحميل نموذج الذكاء الاصطناعي (قد يستغرق بعض الوقت في المرة الأولى)...'})}\n\n"
+            yield f"data: {json.dumps({'status': 'info', 'message': 'جاري تحميل نموذج الذكاء الاصطناعي medium (قد يستغرق وقتاً أطول في المرة الأولى)...'})}\n\n"
             
-            # استخدام موديل small (توازن بين السرعة والدقة)
-            model = whisper.load_model("small")
+            # تم الترقية إلى الموديل الأكبر لتحقيق دقة إملائية عالية
+            model = whisper.load_model("medium")
             
-            yield f"data: {json.dumps({'status': 'info', 'message': 'اكتمل التحميل. جاري بدء التفريغ المباشر...'})}\n\n"
+            yield f"data: {json.dumps({'status': 'info', 'message': 'اكتمل التحميل. يتم الآن تفريغ الفيديو بالكامل لضمان الدقة (قد يستغرق بضع دقائق حسب طول الفيديو)...'})}\n\n"
             
-            # تقسيم الصوت إلى أجزاء صغيرة (مثلاً كل 10 ثواني) ليرى المستخدم النص فوراً
-            chunk_length_ms = 10000 
-            chunks = [audio[i:i+chunk_length_ms] for i in range(0, len(audio), chunk_length_ms)]
+            # معالجة الملف كاملاً دفعة واحدة للحفاظ على سياق الجمل بدون أخطاء
+            result = model.transcribe(file_path)
+            full_text = result["text"].strip()
             
-            full_text = ""
-            for i, chunk in enumerate(chunks):
-                # حفظ الجزء مؤقتاً
-                with tempfile.NamedTemporaryFile(suffix=".wav", dir=app.config['UPLOAD_FOLDER'], delete=False) as temp_wav:
-                    chunk.export(temp_wav.name, format="wav")
-                    temp_wav_path = temp_wav.name
-                
-                # تفريغ الجزء الصغير
-                result = model.transcribe(temp_wav_path)
-                text_segment = result["text"].strip()
-                
-                # حذف الملف المؤقت
-                try:
-                    os.remove(temp_wav_path)
-                except:
-                    pass
-                
-                if text_segment:
-                    full_text += text_segment + " "
-                    # إرسال النص المستخرج فوراً للمتصفح (بث حي)
-                    yield f"data: {json.dumps({'status': 'text', 'text': text_segment + ' '})}\n\n"
-                
-                # إراحة السيرفر قليلاً
-                time.sleep(0.1)
+            if full_text:
+                yield f"data: {json.dumps({'status': 'text', 'text': full_text})}\n\n"
 
             # إنهاء البث
-            yield f"data: {json.dumps({'status': 'done', 'full_text': full_text.strip()})}\n\n"
+            yield f"data: {json.dumps({'status': 'done', 'full_text': full_text})}\n\n"
             
         except Exception as e:
             yield f"data: {json.dumps({'status': 'error', 'message': str(e)})}\n\n"
@@ -253,35 +231,19 @@ def transcribe_temp_stream():
             
             audio = AudioSegment.from_file(temp_file_path)
             
-            yield f"data: {json.dumps({'status': 'info', 'message': 'جاري تحميل نموذج الذكاء الاصطناعي...'})}\n\n"
-            model = whisper.load_model("small")
+            yield f"data: {json.dumps({'status': 'info', 'message': 'جاري تحميل نموذج الذكاء الاصطناعي medium (لأجل دقة أعلى)...'})}\n\n"
+            model = whisper.load_model("medium")
             
-            yield f"data: {json.dumps({'status': 'info', 'message': 'اكتمل التحميل. جاري بدء التفريغ المباشر...'})}\n\n"
+            yield f"data: {json.dumps({'status': 'info', 'message': 'اكتمل التحميل. جاري التفريغ الكامل للفيديو (الرجاء الانتظار قليلاً)...'})}\n\n"
             
-            chunk_length_ms = 10000 
-            chunks = [audio[i:i+chunk_length_ms] for i in range(0, len(audio), chunk_length_ms)]
+            # تفريغ الفيديو دفعة واحدة لتفادي الأخطاء الإملائية
+            result = model.transcribe(temp_file_path)
+            full_text = result["text"].strip()
             
-            full_text = ""
-            for i, chunk in enumerate(chunks):
-                with tempfile.NamedTemporaryFile(suffix=".wav", dir=app.config['UPLOAD_FOLDER'], delete=False) as temp_wav:
-                    chunk.export(temp_wav.name, format="wav")
-                    temp_wav_path = temp_wav.name
-                
-                result = model.transcribe(temp_wav_path)
-                text_segment = result["text"].strip()
-                
-                try:
-                    os.remove(temp_wav_path)
-                except:
-                    pass
-                
-                if text_segment:
-                    full_text += text_segment + " "
-                    yield f"data: {json.dumps({'status': 'text', 'text': text_segment + ' '})}\n\n"
-                
-                time.sleep(0.1)
+            if full_text:
+                yield f"data: {json.dumps({'status': 'text', 'text': full_text})}\n\n"
 
-            yield f"data: {json.dumps({'status': 'done', 'full_text': full_text.strip()})}\n\n"
+            yield f"data: {json.dumps({'status': 'done', 'full_text': full_text})}\n\n"
             
         except Exception as e:
             yield f"data: {json.dumps({'status': 'error', 'message': str(e)})}\n\n"
