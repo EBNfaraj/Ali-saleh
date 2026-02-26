@@ -30,9 +30,19 @@
                 <textarea id="description" name="description" placeholder="اكتب وصفاً مختصراً للفيديو..." class="form-control" rows="3"></textarea>
             </div>
             
-            <div class="form-group">
+            <div class="form-group" style="position: relative;">
                 <label for="content"><i class="fas fa-file-alt"></i> محتوى الفيديو (اختياري)</label>
-                <textarea id="content" name="content" placeholder="اكتب محتوى الفيديو أو تفاصيله هنا..." class="form-control" rows="5"></textarea>
+                
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <span id="transcription-status" style="font-size: 0.9em; color: var(--primary-color); display: none;">
+                        <i class="fas fa-spinner fa-spin"></i> يتم التفريغ الآن...
+                    </span>
+                    <button type="button" id="start-transcription-btn" class="btn-secondary" style="background-color: #2c3e50; font-size: 0.9em; padding: 5px 10px;" onclick="uploadAndTranscribe()">
+                        <i class="fas fa-microphone-alt"></i> تفريغ النص بالذكاء الاصطناعي الآن
+                    </button>
+                </div>
+
+                <textarea id="content" name="content" placeholder="اكتب محتوى الفيديو أو تفاصيله هنا... سيتم تعبئته تلقائياً إذا استخدمت أداة التفريغ." class="form-control" rows="5"></textarea>
             </div>
             
             <div class="form-group">
@@ -52,25 +62,105 @@
             </div>
             
             <div class="form-actions">
-                <button type="submit" class="btn-primary btn-block btn-lg" id="submit-btn" onclick="showLoading()"><i class="fas fa-upload"></i> رفع الآن</button>
+                <button type="submit" class="btn-primary btn-block btn-lg" id="submit-btn" onclick="showLoading()"><i class="fas fa-upload"></i> حفظ ورفع الفيديو كاملاً</button>
                 <a href="{{ url_for('index') }}" class="btn-secondary btn-block mt-2" style="text-align: center;">إلغاء</a>
             </div>
         </form>
     </div>
 </div>
 
-<!-- Loading Overlay -->
+<!-- Loading Overlay for Video Save -->
 <div id="loading-overlay" class="modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 3000; flex-direction: column; align-items: center; justify-content: center; backdrop-filter: blur(5px);">
     <i class="fas fa-spinner fa-spin" style="font-size: 4rem; color: var(--primary-color); margin-bottom: 20px;"></i>
-    <h3 style="color: white; margin-bottom: 10px;">جاري الرفع والمعالجة...</h3>
-    <p style="color: #bbb; text-align: center; max-width: 400px; padding: 0 20px;">يتم الآن رفع الفيديو واستخراج النص منه باستخدام الذكاء الاصطناعي (Whisper).<br>قد تستغرق هذه العملية بعض الوقت حسب حجم الفيديو. الرجاء عدم إغلاق الصفحة.</p>
+    <h3 style="color: white; margin-bottom: 10px;">جاري حفظ الفيديو...</h3>
+    <p style="color: #bbb; text-align: center; max-width: 400px; padding: 0 20px;">يتم الآن حفظ الفيديو في النظام. الرجاء الانتظار.</p>
 </div>
 
 <script>
 function showLoading() {
-    // Only show loading if form is valid and file is selected
     if (document.getElementById('video_file').files.length > 0) {
         document.getElementById('loading-overlay').style.display = 'flex';
+    }
+}
+
+async function uploadAndTranscribe() {
+    const fileInput = document.getElementById('video_file');
+    const btn = document.getElementById('start-transcription-btn');
+    const statusText = document.getElementById('transcription-status');
+    const contentBox = document.getElementById('content');
+
+    if (fileInput.files.length === 0) {
+        alert("يرجى اختيار فيديو أولاً قبل بدء التفريغ!");
+        return;
+    }
+
+    const file = fileInput.files[0];
+
+    // UI Update
+    btn.style.display = 'none';
+    statusText.style.display = 'inline-block';
+    statusText.innerHTML = `<i class="fas fa-spinner fa-spin"></i> جاري إرسال الفيديو المؤقت للتفريغ...`;
+    contentBox.value = '';
+
+    const formData = new FormData();
+    formData.append('video_file', file);
+
+    try {
+        const response = await fetch("{{ url_for('transcribe_temp_stream') }}", {
+            method: 'POST',
+            body: formData
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value, { stream: true });
+            const lines = chunk.split('\n');
+
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    const dataStr = line.substring(6).trim();
+                    if (!dataStr) continue;
+
+                    try {
+                        const data = JSON.parse(dataStr);
+
+                        if (data.status === 'info') {
+                            statusText.innerHTML = `<i class="fas fa-spinner fa-spin"></i> ${data.message}`;
+                        } 
+                        else if (data.status === 'text') {
+                            statusText.innerHTML = `<i class="fas fa-spinner fa-spin"></i> جاري سحب الكلام واستخراجه...`;
+                            contentBox.value += data.text;
+                            contentBox.scrollTop = contentBox.scrollHeight;
+                        }
+                        else if (data.status === 'done') {
+                            statusText.innerHTML = `<i class="fas fa-check-circle" style="color: #2ecc71;"></i> اكتمل التفريغ بنجاح! يمكنك الآن المتابعة لرفع الفيديو.`;
+                            btn.style.display = 'inline-block';
+                            btn.innerHTML = '<i class="fas fa-redo"></i> إعادة التفريغ';
+                            setTimeout(() => { statusText.style.display = 'none'; }, 4000);
+                        }
+                        else if (data.status === 'error') {
+                            statusText.innerHTML = `<i class="fas fa-exclamation-triangle" style="color: #e74c3c;"></i> خطأ: ${data.message}`;
+                            btn.style.display = 'inline-block';
+                        }
+                    } catch (e) {
+                        console.error('Error parsing SSE data:', e, dataStr);
+                    }
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Transcription error:', error);
+        statusText.innerHTML = `<i class="fas fa-exclamation-triangle" style="color: #e74c3c;"></i> حدث خطأ أثناء الاتصال.`;
+        btn.style.display = 'inline-block';
     }
 }
 </script>

@@ -220,6 +220,81 @@ def transcribe_video_stream(video_id):
             
     return Response(generate(), mimetype='text/event-stream')
 
+@app.route('/transcribe_temp', methods=['POST'])
+@admin_required
+def transcribe_temp_stream():
+    # التحقق من وجود الملف
+    if 'video_file' not in request.files:
+        return {'status': 'error', 'message': 'لا يوجد ملف'}, 400
+    
+    file = request.files['video_file']
+    if file.filename == '':
+        return {'status': 'error', 'message': 'لم يتم اختيار ملف'}, 400
+        
+    import uuid
+    import tempfile
+    
+    # حفظ الملف مؤقتاً
+    original_filename = secure_filename(file.filename)
+    extension = os.path.splitext(original_filename)[1]
+    temp_filename = uuid.uuid4().hex + extension
+    temp_file_path = os.path.join(app.config['UPLOAD_FOLDER'], temp_filename)
+    
+    file.save(temp_file_path)
+    
+    def generate():
+        try:
+            yield f"data: {json.dumps({'status': 'info', 'message': 'جاري تجهيز الفيديو واستخلاص الصوت...'})}\n\n"
+            
+            from pydub import AudioSegment
+            import whisper
+            import warnings
+            warnings.filterwarnings("ignore", message=".*FP16.*")
+            
+            audio = AudioSegment.from_file(temp_file_path)
+            
+            yield f"data: {json.dumps({'status': 'info', 'message': 'جاري تحميل نموذج الذكاء الاصطناعي...'})}\n\n"
+            model = whisper.load_model("small")
+            
+            yield f"data: {json.dumps({'status': 'info', 'message': 'اكتمل التحميل. جاري بدء التفريغ المباشر...'})}\n\n"
+            
+            chunk_length_ms = 10000 
+            chunks = [audio[i:i+chunk_length_ms] for i in range(0, len(audio), chunk_length_ms)]
+            
+            full_text = ""
+            for i, chunk in enumerate(chunks):
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_wav:
+                    chunk.export(temp_wav.name, format="wav")
+                    temp_wav_path = temp_wav.name
+                
+                result = model.transcribe(temp_wav_path)
+                text_segment = result["text"].strip()
+                
+                try:
+                    os.remove(temp_wav_path)
+                except:
+                    pass
+                
+                if text_segment:
+                    full_text += text_segment + " "
+                    yield f"data: {json.dumps({'status': 'text', 'text': text_segment + ' '})}\n\n"
+                
+                time.sleep(0.1)
+
+            yield f"data: {json.dumps({'status': 'done', 'full_text': full_text.strip()})}\n\n"
+            
+        except Exception as e:
+            yield f"data: {json.dumps({'status': 'error', 'message': str(e)})}\n\n"
+        finally:
+            # تنظيف الملف المؤقت
+            try:
+                if os.path.exists(temp_file_path):
+                    os.remove(temp_file_path)
+            except:
+                pass
+            
+    return Response(generate(), mimetype='text/event-stream')
+
 @app.route('/save_transcription/<int:video_id>', methods=['POST'])
 @admin_required
 def save_transcription(video_id):
