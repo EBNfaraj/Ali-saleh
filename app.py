@@ -126,6 +126,19 @@ def upload_video():
             content = request.form.get('content', '')
             tags = request.form.get('tags', '')
             
+            # محاولة استخراج النص إذا كان المحتوى فارغاً
+            if not content.strip():
+                try:
+                    import whisper
+                    import warnings
+                    warnings.filterwarnings("ignore", message=".*FP16.*")
+                    # استخدام الموديل small للسرعة المعقولة والجودة الجيدة
+                    model = whisper.load_model("small")
+                    result = model.transcribe(file_path)
+                    content = result["text"].strip()
+                except Exception as e:
+                    print(f"Error during transcription: {e}")
+            
             new_video = Video(title=title, filename=unique_filename, description=description, content=content, tags=tags)
             db.session.add(new_video)
             
