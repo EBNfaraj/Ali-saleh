@@ -136,8 +136,8 @@ async function uploadAndTranscribe() {
                         if (data.status === 'info') {
                             statusText.innerHTML = `<i class="fas fa-spinner fa-spin"></i> ${data.message}`;
                         } 
-                        else if (data.status === 'text') {
-                            statusText.innerHTML = `<i class="fas fa-spinner fa-spin"></i> جاري سحب الكلام واستخراجه...`;
+                        else if (data.status === 'progress') {
+                            statusText.innerHTML = `<i class="fas fa-spinner fa-spin"></i> جاري التفريغ النصي... (${data.progress}%)`;
                             contentBox.value += data.text;
                             contentBox.scrollTop = contentBox.scrollHeight;
                         }

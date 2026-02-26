@@ -169,29 +169,36 @@ def transcribe_video_stream(video_id):
             
             from pydub import AudioSegment
             import tempfile
-            import whisper
+            from faster_whisper import WhisperModel
             import warnings
             warnings.filterwarnings("ignore", message=".*FP16.*")
             
             # تحميل الفيديو واستخراج الصوت
             audio = AudioSegment.from_file(file_path)
+            total_duration_secs = len(audio) / 1000.0
             
             yield f"data: {json.dumps({'status': 'info', 'message': 'جاري تحميل نموذج الذكاء الاصطناعي medium (قد يستغرق وقتاً أطول في المرة الأولى)...'})}\n\n"
             
             # تم الترقية إلى الموديل الأكبر لتحقيق دقة إملائية عالية
-            model = whisper.load_model("medium")
+            model = WhisperModel("medium", device="cpu", compute_type="int8")
             
             yield f"data: {json.dumps({'status': 'info', 'message': 'اكتمل التحميل. يتم الآن تفريغ الفيديو بالكامل لضمان الدقة (قد يستغرق بضع دقائق حسب طول الفيديو)...'})}\n\n"
             
-            # معالجة الملف كاملاً دفعة واحدة للحفاظ على سياق الجمل بدون أخطاء
-            result = model.transcribe(file_path)
-            full_text = result["text"].strip()
+            # معالجة الملف واستقبال الجمل (segments) واحدة تلو الأخرى
+            segments, info = model.transcribe(file_path, beam_size=5)
             
-            if full_text:
-                yield f"data: {json.dumps({'status': 'text', 'text': full_text})}\n\n"
+            full_text = ""
+            for segment in segments:
+                text_segment = segment.text.strip()
+                if text_segment:
+                    full_text += text_segment + " "
+                    # حساب النسبة המئوية بناءً على المنتهى من الفيديو
+                    progress_pct = min(100, int((segment.end / total_duration_secs) * 100))
+                    
+                    yield f"data: {json.dumps({'status': 'progress', 'progress': progress_pct, 'text': text_segment + ' '})}\n\n"
 
             # إنهاء البث
-            yield f"data: {json.dumps({'status': 'done', 'full_text': full_text})}\n\n"
+            yield f"data: {json.dumps({'status': 'done', 'full_text': full_text.strip()})}\n\n"
             
         except Exception as e:
             yield f"data: {json.dumps({'status': 'error', 'message': str(e)})}\n\n"
@@ -225,25 +232,31 @@ def transcribe_temp_stream():
             yield f"data: {json.dumps({'status': 'info', 'message': 'جاري تجهيز الفيديو واستخلاص الصوت...'})}\n\n"
             
             from pydub import AudioSegment
-            import whisper
+            from faster_whisper import WhisperModel
             import warnings
             warnings.filterwarnings("ignore", message=".*FP16.*")
             
             audio = AudioSegment.from_file(temp_file_path)
+            total_duration_secs = len(audio) / 1000.0
             
             yield f"data: {json.dumps({'status': 'info', 'message': 'جاري تحميل نموذج الذكاء الاصطناعي medium (لأجل دقة أعلى)...'})}\n\n"
-            model = whisper.load_model("medium")
+            model = WhisperModel("medium", device="cpu", compute_type="int8")
             
             yield f"data: {json.dumps({'status': 'info', 'message': 'اكتمل التحميل. جاري التفريغ الكامل للفيديو (الرجاء الانتظار قليلاً)...'})}\n\n"
             
-            # تفريغ الفيديو دفعة واحدة لتفادي الأخطاء الإملائية
-            result = model.transcribe(temp_file_path)
-            full_text = result["text"].strip()
+            # تفريغ الفيديو مع تتبع التقدم
+            segments, info = model.transcribe(temp_file_path, beam_size=5)
             
-            if full_text:
-                yield f"data: {json.dumps({'status': 'text', 'text': full_text})}\n\n"
+            full_text = ""
+            for segment in segments:
+                text_segment = segment.text.strip()
+                if text_segment:
+                    full_text += text_segment + " "
+                    # حساب النسبة המئوية
+                    progress_pct = min(100, int((segment.end / total_duration_secs) * 100))
+                    yield f"data: {json.dumps({'status': 'progress', 'progress': progress_pct, 'text': text_segment + ' '})}\n\n"
 
-            yield f"data: {json.dumps({'status': 'done', 'full_text': full_text})}\n\n"
+            yield f"data: {json.dumps({'status': 'done', 'full_text': full_text.strip()})}\n\n"
             
         except Exception as e:
             yield f"data: {json.dumps({'status': 'error', 'message': str(e)})}\n\n"
