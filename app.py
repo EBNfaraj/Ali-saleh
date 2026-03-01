@@ -180,7 +180,10 @@ def transcribe_video_stream(video_id):
             yield f"data: {json.dumps({'status': 'info', 'message': 'جاري تحميل نموذج الذكاء الاصطناعي medium (قد يستغرق وقتاً أطول في المرة الأولى)...'})}\n\n"
             
             # تم الترقية إلى الموديل الأكبر لتحقيق دقة إملائية عالية
-            model = WhisperModel("medium", device="cpu", compute_type="int8")
+            # download_root يوجه ملفات النموذج لقرص G بدلاً من C المليء
+            model_cache_dir = os.path.join(os.path.dirname(app.config['UPLOAD_FOLDER']), 'model_cache')
+            os.makedirs(model_cache_dir, exist_ok=True)
+            model = WhisperModel("medium", device="cpu", compute_type="int8", download_root=model_cache_dir)
             
             yield f"data: {json.dumps({'status': 'info', 'message': 'اكتمل التحميل. يتم الآن تفريغ الفيديو بالكامل لضمان الدقة (قد يستغرق بضع دقائق حسب طول الفيديو)...'})}\n\n"
             
@@ -240,7 +243,9 @@ def transcribe_temp_stream():
             total_duration_secs = len(audio) / 1000.0
             
             yield f"data: {json.dumps({'status': 'info', 'message': 'جاري تحميل نموذج الذكاء الاصطناعي medium (لأجل دقة أعلى)...'})}\n\n"
-            model = WhisperModel("medium", device="cpu", compute_type="int8")
+            model_cache_dir = os.path.join(os.path.dirname(app.config['UPLOAD_FOLDER']), 'model_cache')
+            os.makedirs(model_cache_dir, exist_ok=True)
+            model = WhisperModel("medium", device="cpu", compute_type="int8", download_root=model_cache_dir)
             
             yield f"data: {json.dumps({'status': 'info', 'message': 'اكتمل التحميل. جاري التفريغ الكامل للفيديو (الرجاء الانتظار قليلاً)...'})}\n\n"
             
