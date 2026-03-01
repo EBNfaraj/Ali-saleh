@@ -529,4 +529,6 @@ def view_page(slug):
 if __name__ == '__main__':
     # Ensure upload folder exists
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-    app.run(debug=True, port=5100)
+    # threaded=True ضروري لدعم البث المباشر SSE أثناء عمل الخادم
+    # use_reloader=False لتفادي إعادة التشغيل المستمرة بسبب ملفات torch
+    app.run(debug=True, port=5100, threaded=True, use_reloader=False)
